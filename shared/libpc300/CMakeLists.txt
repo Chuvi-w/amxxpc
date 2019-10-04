@@ -1,6 +1,6 @@
 #build file for CMake, see http://www.cmake.org/
 
-PROJECT(pawnc)
+PROJECT(amxxpc32)
 
 # check for optional include files
 INCLUDE(${CMAKE_ROOT}/Modules/CheckIncludeFile.cmake)
@@ -28,19 +28,23 @@ ENDIF(UNIX)
 
 # The Pawn compiler shared library
 SET(PAWNC_SRCS sc1.c sc2.c sc3.c sc4.c sc5.c sc6.c sc7.c
-	scexpand.c sci18n.c sclist.c scmemfil.c scstate.c scvars.c
-	libpawnc.c)
+	sci18n.c sclist.c scmemfil.c scstate.c scvars.c
+	libpawnc.c sp_symhash.c memfile.c)
 SET_SOURCE_FILES_PROPERTIES(sc1.c COMPILE_FLAGS -DNO_MAIN)
 IF(WIN32)
-  SET(PAWNC_SRCS ${PAWNC_SRCS} libpawnc.def libpawnc.rc)
+  #SET(PAWNC_SRCS ${PAWNC_SRCS} libpawnc.def libpawnc.rc)
+  #Ну нафиг этот деф. Светим всеми символами наружу.
+  set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
   SET_SOURCE_FILES_PROPERTIES(libpawnc.c COMPILE_FLAGS -DPAWNC_DLL)
 ENDIF(WIN32)
 IF(UNIX)
   SET(PAWNC_SRCS ${PAWNC_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/../linux/prefix.c)
 ENDIF(UNIX)
-ADD_LIBRARY(pawnc SHARED ${PAWNC_SRCS})
+ADD_LIBRARY(amxxpc32 SHARED ${PAWNC_SRCS})
+target_include_directories(amxxpc32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+SET_TARGET_PROPERTIES (amxxpc32 PROPERTIES FOLDER Libraries)
 IF(UNIX)
-  ADD_CUSTOM_COMMAND(TARGET pawnc POST_BUILD COMMAND strip ARGS -K pc_compile -K pc_addconstant -K pc_addtag -K pc_enablewarning libpawnc.so)
+  ADD_CUSTOM_COMMAND(TARGET amxxpc32 POST_BUILD COMMAND strip ARGS -K pc_compile -K pc_addconstant -K pc_addtag -K pc_enablewarning libpawnc.so)
 ENDIF(UNIX)
 
 # The Pawn compiler driver (console program)
@@ -49,4 +53,5 @@ IF(WIN32)
   SET(PAWNCC_SRCS ${PAWNCC_SRCS} pawncc.def libpawnc.rc)
 ENDIF(WIN32)
 ADD_EXECUTABLE(pawncc ${PAWNCC_SRCS})
-TARGET_LINK_LIBRARIES(pawncc pawnc)
+SET_TARGET_PROPERTIES (pawncc PROPERTIES FOLDER Tools)
+TARGET_LINK_LIBRARIES(pawncc amxxpc32)

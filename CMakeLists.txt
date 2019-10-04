@@ -1,68 +1,93 @@
 cmake_minimum_required(VERSION 3.4.0)
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "build")
-set(LIBRARY_OUTPUT_PATH "build")
-set(EXECUTABLE_OUTPUT_PATH "build")
+#Алярма. Я не утверждаю, что мой способ - самый правильный. Скорее наоборот. 
+#Но он замечательно копипастится в другие проекты. И относительно удобен.
 
 project(amxxpc)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 set (CMAKE_CXX_STANDARD 11)
 
-link_directories(${CMAKE_CURRENT_BINARY_DIR})
+#Ниже немного магии
 
-set(ZLIB shared/zlib)
-set(LIBPC300 shared/libpc300)
-set(SRC src)
+#Во-первых, определим тип платформы. (32 или 64 бита)
+if(NOT "${CMAKE_SIZEOF_VOID_P}" STREQUAL "4" AND NOT "${CMAKE_SIZEOF_VOID_P}" STREQUAL "8")
+	message(FATAL_ERROR "CMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}. Unknown platform")
+else()
+	if("${CMAKE_SIZEOF_VOID_P}" STREQUAL "4")
+		add_compile_definitions(__PLAT_TYPE_32__)
+		set(PLATFORM_TYPE 32)
+	else()
+		add_compile_definitions(__PLAT_TYPE_64__)
+		set(PLATFORM_TYPE 64)
+	endif()
+endif()
 
-add_library(
-    zlib STATIC 
-    ${ZLIB}/adler32.c 
-    ${ZLIB}/compress.c 
-    ${ZLIB}/crc32.c 
-    ${ZLIB}/deflate.c 
-    ${ZLIB}/gzclose.c
-    ${ZLIB}/gzlib.c
-    ${ZLIB}/gzread.c
-    ${ZLIB}/gzwrite.c
-    ${ZLIB}/infback.c
-    ${ZLIB}/inffast.c
-    ${ZLIB}/inflate.c
-    ${ZLIB}/inftrees.c
-    ${ZLIB}/trees.c
-    ${ZLIB}/uncompr.c
-    ${ZLIB}/zutil.c
-)
-target_compile_definitions(zlib PUBLIC HAVE_UNISTD_H)
-set_target_properties(zlib PROPERTIES PREFIX "")
-set_target_properties(zlib PROPERTIES COMPILE_FLAGS "-m32" LINK_FLAGS "-m32")
+#И имя платформы. Шоб было.
+if(WIN32)
+	add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+	if("${PLATFORM_TYPE}" STREQUAL "32")
+		set(PLATFOTM_NAME win32)
+	endif()
 
-add_library(
-    amxxpc32 SHARED
-    ${LIBPC300}/sc1.c
-    ${LIBPC300}/sc2.c
-    ${LIBPC300}/sc3.c
-    ${LIBPC300}/sc4.c
-    ${LIBPC300}/sc5.c
-    ${LIBPC300}/sc6.c
-    ${LIBPC300}/sc7.c
-    ${LIBPC300}/scvars.c
-    ${LIBPC300}/scmemfil.c
-    ${LIBPC300}/scstate.c
-    ${LIBPC300}/sclist.c
-    ${LIBPC300}/sci18n.c
-    ${LIBPC300}/pawncc.c
-    ${LIBPC300}/libpawnc.c
-    ${LIBPC300}/prefix.c
-    ${LIBPC300}/memfile.c
-    ${LIBPC300}/sp_symhash.c
-)
-target_compile_definitions(amxxpc32 PRIVATE NO_MAIN PRIVATE PAWNC_DLL PRIVATE HAVE_STDINT_H PRIVATE _GNU_SOURCE PRIVATE ENABLE_BINRELOC)
-target_compile_definitions(amxxpc32 PRIVATE PAWN_CELL_SIZE=32 PRIVATE _LINUX PRIVATE POSIX PRIVATE LINUX)
-set_target_properties(amxxpc32 PROPERTIES PREFIX "")
-set_target_properties(amxxpc32 PROPERTIES COMPILE_FLAGS "-lm -pthread -m32" LINK_FLAGS "-lm -pthread -m32")
-target_include_directories(amxxpc32 PRIVATE ${LIBPC300})
+	if("${PLATFORM_TYPE}" STREQUAL "64")
+		set(PLATFOTM_NAME x64)
+	endif()
+else()
+	#Тут надо бы что-то для других платформ. Ну да ладно.
+	set(PLATFOTM_NAME "")
+endif()
 
-add_executable(${PROJECT_NAME} ${SRC}/amx.cpp ${SRC}/amxxpc.cpp ${SRC}/Binary.cpp)
-target_compile_definitions(${PROJECT_NAME} PRIVATE PAWN_CELL_SIZE=32 PRIVATE _LINUX PRIVATE POSIX PRIVATE LINUX PRIVATE AMX_ANSIONLY)
-set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS "-m32 -ldl -lm -static-libgcc" LINK_FLAGS "-m32 -ldl -lm -static-libgcc")
-target_include_directories(${PROJECT_NAME} PRIVATE ${SRC} PRIVATE shared  PRIVATE public)
-target_link_libraries(${PROJECT_NAME} zlib)
+
+macro(FixStaticLinking)
+#Этот макрос нам нужен для статической линковки CTR под виндами. (Чтобы всякие dll-ки не тащились)
+if(MSVC)
+	foreach(flag
+			CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+			CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+		if(${flag} MATCHES "/MD")
+			string(REGEX REPLACE "/MD" "/MT" ${flag} "${${flag}}")
+		endif()
+	endforeach()
+endif()
+endmacro()
+
+macro(PrintDirs var)
+	#Сейчас не нужен, но как пример - пусть будет.
+	get_property(${var}_LIBRARY_OUTPUT_DIRECTORY TARGET ${var} PROPERTY LIBRARY_OUTPUT_DIRECTORY)
+	message(${var}_LIBRARY_OUTPUT_DIRECTORY=${${var}_LIBRARY_OUTPUT_DIRECTORY})
+	message(${var}_COMPILE_PDB_OUTPUT_DIRECTORY=${COMPILE_PDB_OUTPUT_DIRECTORY})
+endmacro()
+
+macro(FixExePostfix Target)
+	#Этот макрос нужен для изменения постфикса .exe-шки. CMAKE_<CONFIG>_POSTFIX на неё не действует.
+	set_target_properties(${Target} PROPERTIES DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
+	set_target_properties(${Target} PROPERTIES RELEASE_POSTFIX ${CMAKE_RELEASE_POSTFIX})
+	set_target_properties(${Target} PROPERTIES MINSIZEREL_POSTFIX ${CMAKE_MINSIZEREL_POSTFIX})
+	set_target_properties(${Target} PROPERTIES RELWITHDEBINFO_POSTFIX ${CMAKE_RELWITHDEBINFO_POSTFIX})
+endmacro()
+
+#Назначим директории, куда будут складываться результаты, в зависимости от конфгурации.
+if(CMAKE_CONFIGURATION_TYPES)
+	set(CMAKE_DEBUG_POSTFIX "_${PLATFORM_TYPE}_d")
+	set(CMAKE_RELEASE_POSTFIX "_${PLATFORM_TYPE}")
+	set(CMAKE_MINSIZEREL_POSTFIX "_${PLATFORM_TYPE}_min")
+	set(CMAKE_RELWITHDEBINFO_POSTFIX "_${PLATFORM_TYPE}_rd")
+	
+	foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
+		string(TOUPPER ${cfg} cfgup)
+		set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${cfgup} ${CMAKE_BINARY_DIR}/_Output/Lib)
+		set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${cfgup} ${CMAKE_BINARY_DIR}/_Output/Lib)
+		set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${cfgup} ${CMAKE_BINARY_DIR}/_Output/Bin)
+	endforeach()
+else()
+	#Если конфигураций нет (бывает такое), то всё равно что-то назначим, чтобы потом не собирать всё руками.
+		set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_Output/${PLATFOTM_NAME}/Lib)
+		set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_Output/${PLATFOTM_NAME}/Lib)
+		set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/_Output/${PLATFOTM_NAME}/Bin)	
+endif()
+
+
+
+add_subdirectory(public)
+add_subdirectory(shared)
+add_subdirectory(src)
